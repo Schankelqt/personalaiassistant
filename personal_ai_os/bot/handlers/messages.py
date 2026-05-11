@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
+from telegram import InputFile, Update
 from telegram.ext import ContextTypes
 
 from personal_ai_os.bot.setup import BotContext
+from personal_ai_os.core.message_attachments import attachments_begin, attachments_drain
 from personal_ai_os.config import get_settings
 from personal_ai_os.core.security import looks_like_prompt_injection
 
@@ -62,6 +63,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "Ты близок к дневному лимиту токенов. /status — подробности, /upgrade — тарифы."
                 )
 
+        attachments_begin()
         try:
             msg = await ctx.meta.handle_message(conn, user, text)
         except Exception:
@@ -70,4 +72,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "Сервис ИИ временно недоступен. Я уже попробовал повторить запрос. Попробуйте через минуту."
             )
             return
+        finally:
+            files = attachments_drain()
         await chat.send_message(msg[:4090])
+        for fname, raw in files:
+            try:
+                await chat.send_document(
+                    document=InputFile(raw, filename=fname),
+                    caption=f"Файл: {fname}",
+                )
+            except Exception:
+                logger.exception("send_document failed user_id=%s file=%s", user.id, fname)
+                await chat.send_message(f"Не удалось отправить файл «{fname}». Попробуй ещё раз.")

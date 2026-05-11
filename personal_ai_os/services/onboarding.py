@@ -72,7 +72,7 @@ async def finalize_onboarding(conn: Any, user_id: Any, profile: dict[str, Any]) 
         name="Engineer",
         agent_type="engineer",
         system_prompt=_default_engineer_prompt(profile),
-        tools=["create_custom_agent", "oauth"],
+        tools=["create_custom_agent", "oauth", "excel"],
         metadata={"role": "engineer"},
     )
     await queries.insert_agent(

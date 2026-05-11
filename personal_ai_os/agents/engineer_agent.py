@@ -9,6 +9,8 @@ from redis.asyncio import Redis
 
 from personal_ai_os.config import get_settings
 from personal_ai_os.core.claude_client import ClaudeClient
+from personal_ai_os.core.excel_export import build_xlsx_from_spec
+from personal_ai_os.core.message_attachments import attachments_append
 from personal_ai_os.core.session_store import append_message
 from personal_ai_os.db import queries
 from personal_ai_os.db.models import AgentRow, UserRow
@@ -23,8 +25,9 @@ async def run_engineer(
     query: str,
 ) -> str:
     settings = get_settings()
-    system = f"""Ты — Engineer-агент: настройка ассистента, интеграции, создание агентов.
+    system = f"""Ты — Engineer-агент: настройка ассистента, интеграции, создание агентов, таблицы Excel.
 Отвечай по-русски, кратко. Используй инструменты.
+Для .xlsx вызывай create_excel_workbook с file_name и sheets (headers опционально, rows — массив строк-ячеек).
 {agent.system_prompt}
 """
 
@@ -114,6 +117,42 @@ async def run_engineer(
             "description": "Выдать ссылку OAuth Jira Cloud",
             "input_schema": {"type": "object", "properties": {}},
         },
+        {
+            "name": "create_excel_workbook",
+            "description": (
+                "Собрать файл Excel (.xlsx) и отправить пользователю в Telegram. "
+                "До 10 листов, до 2000 строк данных на файл."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "Имя файла, например отчет_март.xlsx",
+                    },
+                    "sheets": {
+                        "type": "array",
+                        "description": "Листы с данными",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sheet_name": {"type": "string"},
+                                "headers": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "rows": {
+                                    "type": "array",
+                                    "items": {"type": "array"},
+                                },
+                            },
+                            "required": ["rows"],
+                        },
+                    },
+                },
+                "required": ["file_name", "sheets"],
+            },
+        },
     ]
 
     async def exec_tool(name: str, payload: dict[str, Any]) -> str:
@@ -161,6 +200,15 @@ async def run_engineer(
             return await oauth_google_link()
         if name == "get_oauth_jira_link":
             return await oauth_jira_link()
+        if name == "create_excel_workbook":
+            try:
+                raw, fname = build_xlsx_from_spec(
+                    {"file_name": payload.get("file_name"), "sheets": payload.get("sheets")}
+                )
+            except ValueError as e:
+                return f"Не удалось собрать Excel: {e}"
+            attachments_append(fname, raw)
+            return f"Файл «{fname}» сформирован и будет отправлен вместе с ответом."
         return "?"
 
     res = await claude.complete_with_tools(
