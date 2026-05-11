@@ -10,6 +10,7 @@ from uuid import UUID
 
 import asyncpg
 
+from personal_ai_os.config import get_settings
 from personal_ai_os.db.models import (
     AgentRow,
     MemoryEntryRow,
@@ -232,6 +233,8 @@ async def log_tokens(
 async def try_consume_tokens(conn: asyncpg.Connection, user: UserRow, n: int) -> bool:
     """Reserve n tokens; returns False if budget exceeded."""
     if n <= 0:
+        return True
+    if user.telegram_id in get_settings().unlimited_telegram_id_set:
         return True
     row = await conn.fetchrow("SELECT daily_tokens_used, token_balance FROM users WHERE id = $1 FOR UPDATE", user.id)
     if row is None:

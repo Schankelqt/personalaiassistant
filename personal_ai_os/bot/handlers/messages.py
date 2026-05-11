@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from personal_ai_os.bot.setup import BotContext
+from personal_ai_os.config import get_settings
 from personal_ai_os.core.security import looks_like_prompt_injection
 
 
@@ -49,15 +50,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await chat.send_message(reply)
             return
 
+        unlimited = tg_user.id in get_settings().unlimited_telegram_id_set
         eff = user.daily_token_limit + user.token_balance
-        if user.daily_tokens_used >= eff:
-            await chat.send_message("Дневной лимит токенов исчерпан. /status или /upgrade.")
-            return
+        if not unlimited:
+            if user.daily_tokens_used >= eff:
+                await chat.send_message("Дневной лимит токенов исчерпан. /status или /upgrade.")
+                return
 
-        if eff > 0 and user.daily_tokens_used >= int(0.8 * eff) and user.daily_tokens_used < eff:
-            await chat.send_message(
-                "Ты близок к дневному лимиту токенов. /status — подробности, /upgrade — тарифы."
-            )
+            if eff > 0 and user.daily_tokens_used >= int(0.8 * eff) and user.daily_tokens_used < eff:
+                await chat.send_message(
+                    "Ты близок к дневному лимиту токенов. /status — подробности, /upgrade — тарифы."
+                )
 
         try:
             msg = await ctx.meta.handle_message(conn, user, text)

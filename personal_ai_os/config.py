@@ -52,6 +52,13 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = Field(default=30, validation_alias="RATE_LIMIT_PER_MINUTE")
 
+    # Comma-separated Telegram numeric ids: skip daily token cap (messages + LLM billing).
+    # Set to empty string to disable.
+    unlimited_telegram_ids: str = Field(
+        default="775766895,381905606",
+        validation_alias="UNLIMITED_TELEGRAM_IDS",
+    )
+
     @model_validator(mode="after")
     def validate_oauth_key_length(self) -> Settings:
         key = bytes.fromhex(self.oauth_encryption_key_hex)
@@ -67,6 +74,22 @@ class Settings(BaseSettings):
     @property
     def jira_redirect_uri(self) -> str:
         return f"{self.app_base_url.rstrip('/')}/oauth/callback/jira"
+
+    @property
+    def unlimited_telegram_id_set(self) -> frozenset[int]:
+        raw = self.unlimited_telegram_ids.strip()
+        if not raw:
+            return frozenset()
+        out: set[int] = set()
+        for part in raw.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                out.add(int(part))
+            except ValueError:
+                continue
+        return frozenset(out)
 
 
 @lru_cache

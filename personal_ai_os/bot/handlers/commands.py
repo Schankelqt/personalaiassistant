@@ -120,11 +120,19 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await update.effective_chat.send_message("Сначала /start")
             return
         n = await queries.count_active_agents(conn, user.id)
+    from personal_ai_os.config import get_settings
+
+    unlimited = user.telegram_id in get_settings().unlimited_telegram_id_set
     eff = user.daily_token_limit + user.token_balance
     used = user.daily_tokens_used
+    token_line = (
+        "Токены: без дневного лимита (учёт в логах ведётся).\n"
+        if unlimited
+        else f"Токены сегодня: {used} / {eff}\n"
+    )
     await update.effective_chat.send_message(
         f"Тариф: **{user.plan}**\n"
-        f"Токены сегодня: {used} / {eff}\n"
+        f"{token_line}"
         f"Активных агентов: {n}\n"
         f"Бонусный баланс токенов (пакеты): {user.token_balance}"
         + (
