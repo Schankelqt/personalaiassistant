@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = Field(validation_alias="ANTHROPIC_API_KEY")
     anthropic_model_sonnet: str = Field(
-        default="claude-sonnet-4-5-20251001", validation_alias="ANTHROPIC_MODEL_SONNET"
+        default="claude-sonnet-4-5-20250929", validation_alias="ANTHROPIC_MODEL_SONNET"
     )
     anthropic_model_haiku: str = Field(
         default="claude-haiku-4-5-20251001", validation_alias="ANTHROPIC_MODEL_HAIKU"
