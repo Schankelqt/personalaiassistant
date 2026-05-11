@@ -1,0 +1,70 @@
+# Локально: Python 3.12+, см. `.env.minimal.example`, примените `migrations/001_schema.sql`,
+# затем: docker compose up --build
+#
+# Безопасность:
+#   - redis НЕ выставляется наружу (нет `ports:`). Внутри docker network доступен по host=redis.
+#   - bot слушает только 127.0.0.1:8000, чтобы из интернета шёл трафик только через Caddy с TLS.
+#   - все контейнеры работают от non-root пользователя (см. Dockerfile).
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # SEC: никаких `ports:` — Redis доступен только внутри docker network.
+    # SEC: protected-mode по умолчанию + сеть приватная.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # SEC: только loopback. Внешний трафик идёт через Caddy на хосте.
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\", timeout=3)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A personal_ai_os.scheduler.tasks:celery_app worker --loglevel=INFO --concurrency=2
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+
+  beat:
+    build: .
+    restart: unless-stopped
+    command: celery -A personal_ai_os.scheduler.tasks:celery_app beat --loglevel=INFO
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0

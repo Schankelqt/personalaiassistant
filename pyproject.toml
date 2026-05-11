@@ -1,0 +1,19 @@
+[project]
+name = "personal-ai-os"
+version = "0.1.0"
+description = "Telegram-native multi-agent Personal AI OS (MVP)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

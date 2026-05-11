@@ -1,0 +1,52 @@
+# Защита от попадания секретов и мусора в docker image.
+
+# Секреты
+.env
+.env.*
+!.env.example
+!.env.minimal.example
+credentials/
+secrets/
+*.pem
+*.key
+
+# Python артефакты
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+
+# Git и история
+.git/
+.gitignore
+.gitattributes
+
+# Тесты и линтеры
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ОС
+.DS_Store
+Thumbs.db
+
+# Документация и метаданные (не нужны в runtime image)
+LAUNCH.md
+README.md
+CREDENTIALS_AND_ACCESS_NEEDED.md
+agent/Документация/
+
+# Логи и бэкапы
+*.log
+*.bak
+*.dump

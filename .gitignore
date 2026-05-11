@@ -1,0 +1,153 @@
+# ============================================================
+# Personal AI OS — .gitignore
+# Защищает от утечки секретов, локальных артефактов и мусора.
+# ============================================================
+
+# ----------- Секреты и переменные окружения -----------
+.env
+.env.*
+!.env.example
+!.env.minimal.example
+*.env
+.envrc
+credentials/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# ----------- Python -----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ----------- Виртуальные окружения -----------
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# ----------- Тесты и линтеры -----------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ----------- IDE и редакторы -----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+.vimrc.local
+.cursor/
+
+# ----------- ОС -----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ----------- Docker -----------
+docker-compose.override.yml
+docker-compose.local.yml
+.docker/
+
+# ----------- Логи и временные файлы -----------
+*.log
+logs/
+*.tmp
+*.bak
+*.backup
+*.orig
+
+# ----------- Бэкапы БД и дампы -----------
+*.sql.gz
+*.dump
+*.tar.gz
+backup-*.sql
+dump-*.sql
+pg_dump*.sql
+
+# ----------- Локальные данные приложения -----------
+data/
+local_data/
+*.sqlite
+*.sqlite3
+*.db
+
+# ----------- Сертификаты Caddy/TLS -----------
+caddy_data/
+caddy_config/
+
+# ----------- Артефакты сборки -----------
+*.tar
+*.zip
+*.gz
+node_modules/
+
+# ----------- AI/ML/обучение (на будущее) -----------
+*.ckpt
+*.pkl
+*.h5
+*.onnx
+runs/
+wandb/
+mlruns/
+
+# ----------- Личные заметки разработчика -----------
+NOTES.md
+TODO.local.md
+.scratch/
