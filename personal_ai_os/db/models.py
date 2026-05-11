@@ -6,7 +6,9 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+import json
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Plan(str, Enum):
@@ -49,6 +51,26 @@ class AgentRow(BaseModel):
     tools: list[Any] = Field(default_factory=list)
     is_active: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def parse_tools_json(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return []
+        return v
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata_json(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
 
 
 class MemoryEntryRow(BaseModel):
