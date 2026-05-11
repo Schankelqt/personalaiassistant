@@ -151,3 +151,14 @@ mlruns/
 NOTES.md
 TODO.local.md
 .scratch/
+
+# ----------- Стратегическая документация (не в репо) -----------
+Документация/
+Documentation/
+docs-private/
+Контекст.md
+context.md
+context-*.md
+*.docx
+*.doc
+~$*
