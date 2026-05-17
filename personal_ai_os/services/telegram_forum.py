@@ -46,17 +46,19 @@ async def link_workspace(
     *,
     is_forum: bool,
 ) -> str:
+    await queries.set_user_workspace(conn, user.id, chat_id)
+    base = (
+        f"Рабочее пространство привязано (chat_id {chat_id}).\n\n"
+        "Создать топик агента: /topic <имя> (например /topic Память)\n"
+        "Список топиков: /topics"
+    )
     if not is_forum:
         return (
-            "В этой группе не включены **Темы** (Forum). "
-            "Настройки группы → Topics → включить, затем снова `/link_workspace`."
+            base
+            + "\n\n⚠️ Темы (Forum) не видны API. Если Topics уже включены — всё ок, "
+            "попробуй /topic. Иначе: настройки группы → Topics → включить."
         )
-    await queries.set_user_workspace(conn, user.id, chat_id)
-    return (
-        f"Рабочее пространство привязано (chat_id `{chat_id}`).\n\n"
-        "Создать топик агента: `/topic <имя>` или «открой тему для Память».\n"
-        "Список топиков: `/topics`"
-    )
+    return base
 
 
 async def create_topic_for_agent(

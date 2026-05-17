@@ -248,6 +248,20 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def cmd_workspace_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fallback router when slash command is plain text (forum topics)."""
+    text = (update.message and update.message.text) or ""
+    cmd = text.strip().split()[0].split("@")[0].lower()
+    if cmd == "/link_workspace":
+        await cmd_link_workspace(update, context)
+    elif cmd == "/topic":
+        await cmd_topic(update, context)
+    elif cmd == "/topics":
+        await cmd_topics(update, context)
+    elif cmd == "/workspace":
+        await cmd_workspace(update, context)
+
+
 async def cmd_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from personal_ai_os.services.telegram_forum import WORKSPACE_SETUP_TEXT
 
@@ -257,30 +271,59 @@ async def cmd_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def cmd_link_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import logging
+
+    import asyncpg
+
+    from personal_ai_os.bot.handlers.telegram_reply import detect_forum_chat, reply_kwargs
     from personal_ai_os.db import queries
     from personal_ai_os.services import telegram_forum
 
+    logger = logging.getLogger(__name__)
     ctx: BotContext = context.application.bot_data["ctx"]
     chat = update.effective_chat
     tg_user = update.effective_user
     if not chat or not tg_user:
         return
+    kw = reply_kwargs(update)
     if chat.type not in ("group", "supergroup"):
-        await chat.send_message("Эту команду отправь **в супергруппе** с включёнными темами.", parse_mode=ParseMode.MARKDOWN)
+        await chat.send_message(
+            "Эту команду отправь в супергруппе с включёнными темами (Topics).",
+            **kw,
+        )
         return
 
-    async with ctx.pool.acquire() as conn:
-        user = await queries.get_user_by_telegram(conn, tg_user.id)
-        if not user:
-            await chat.send_message("Сначала /start в личке с ботом.")
-            return
-        msg = await telegram_forum.link_workspace(
-            conn,
-            user,
-            chat.id,
-            is_forum=bool(getattr(chat, "is_forum", False)),
+    try:
+        async with ctx.pool.acquire() as conn:
+            user = await queries.get_user_by_telegram(conn, tg_user.id)
+            if not user:
+                await chat.send_message("Сначала /start в личке с ботом.", **kw)
+                return
+            is_forum = await detect_forum_chat(update, context)
+            msg = await telegram_forum.link_workspace(
+                conn,
+                user,
+                chat.id,
+                is_forum=is_forum,
+            )
+        await chat.send_message(msg, **kw)
+    except asyncpg.PostgresError as e:
+        logger.exception("link_workspace db error")
+        hint = str(e).lower()
+        if "telegram_workspace_chat_id" in hint or "workspace_linked_at" in hint:
+            err = (
+                "Не хватает колонок в БД. Выполни миграцию "
+                "migrations/002_workspace_topics.sql в Supabase SQL Editor."
+            )
+        else:
+            err = "Ошибка базы данных при привязке. Проверь логи бота на сервере."
+        await chat.send_message(err, **kw)
+    except Exception:
+        logger.exception("link_workspace failed")
+        await chat.send_message(
+            "Не удалось привязать группу. Проверь, что бот админ с правом Manage Topics.",
+            **kw,
         )
-    await chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
 
 
 async def handle_topic_command(

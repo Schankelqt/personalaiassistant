@@ -47,6 +47,9 @@ def build_pt_app(ctx: BotContext) -> Application:
     app.add_handler(CommandHandler("link_workspace", commands.cmd_link_workspace))
     app.add_handler(CommandHandler("topic", commands.cmd_topic))
     app.add_handler(CommandHandler("topics", commands.cmd_topics))
+    # В топиках форума slash-команда иногда приходит без entity «bot_command»
+    _ws_cmd = filters.Regex(r"(?i)^/(link_workspace|topic|topics|workspace)(@\w+)?\s*$")
+    app.add_handler(MessageHandler(_ws_cmd, commands.cmd_workspace_router), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.on_text))
     return app
 
@@ -159,7 +162,16 @@ async def telegram_webhook(
             return {"ok": True}
     ptb: Application = request.app.state.ptb
     update = Update.de_json(data, ptb.bot)
-    await ptb.process_update(update)
+    try:
+        await ptb.process_update(update)
+    except Exception:
+        import logging
+
+        logging.getLogger("webhook").exception(
+            "process_update failed update_id=%s",
+            data.get("update_id"),
+        )
+        raise
     return {"ok": True}
 
 
