@@ -250,12 +250,16 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_workspace_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Fallback router when slash command is plain text (forum topics)."""
+    import re
+
     text = (update.message and update.message.text) or ""
-    cmd = text.strip().split()[0].split("@")[0].lower()
+    stripped = text.strip()
+    if re.match(r"(?i)^/topic(@\w+)?", stripped):
+        await cmd_topic(update, context)
+        return
+    cmd = stripped.split()[0].split("@")[0].lower()
     if cmd == "/link_workspace":
         await cmd_link_workspace(update, context)
-    elif cmd == "/topic":
-        await cmd_topic(update, context)
     elif cmd == "/topics":
         await cmd_topics(update, context)
     elif cmd == "/workspace":
@@ -326,6 +330,24 @@ async def cmd_link_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
+def _parse_topic_agent_name(text: str, context_args: list[str] | None) -> str:
+    import re
+
+    if context_args:
+        return " ".join(context_args).strip()
+    raw = (text or "").strip()
+    m = re.match(r"(?i)^/topic(@\w+)?\s+(.+)$", raw)
+    if m:
+        return m.group(2).strip()
+    m2 = re.match(r"(?i)^/topic(@\w+)?(.+)$", raw)
+    if m2 and m2.group(2).strip():
+        return m2.group(2).strip()
+    for prefix in ("/topic", "открой тему", "создай тему", "создай топик", "открой топик"):
+        if raw.lower().startswith(prefix):
+            return raw[len(prefix) :].strip(" :—-")
+    return raw.strip(" :—-")
+
+
 async def handle_topic_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -333,6 +355,8 @@ async def handle_topic_command(
     text: str,
 ) -> None:
     """Create forum topic for agent; used by /topic and NL triggers."""
+    from personal_ai_os.core.agent_persona import default_persona_for_type, merge_persona
+    from personal_ai_os.bot.handlers.telegram_reply import reply_kwargs
     from personal_ai_os.db import queries
     from personal_ai_os.services import telegram_forum
 
@@ -340,31 +364,60 @@ async def handle_topic_command(
     chat = update.effective_chat
     if not chat:
         return
+    kw = reply_kwargs(update)
 
-    raw = " ".join(context.args or []).strip()
-    if not raw:
-        raw = text
-    for prefix in ("/topic", "открой тему", "создай тему", "создай топик", "открой топик"):
-        if raw.lower().startswith(prefix):
-            raw = raw[len(prefix) :].strip()
-            break
-    raw = raw.strip(" :—-")
+    raw = _parse_topic_agent_name(text, context.args)
     if not raw:
         await chat.send_message(
-            "Укажи агента: `/topic Память` или `/topic engineer`",
-            parse_mode=ParseMode.MARKDOWN,
+            "Укажи агента, например:\n"
+            "/topic Память\n"
+            "/topic engineer\n"
+            "/topic Авиабилеты — создам агента и топик, если его ещё нет",
+            **kw,
         )
         return
 
     async with ctx.pool.acquire() as conn:
-        agent = await queries.find_agent_by_name_hint(conn, user.id, raw)
-        if agent is None:
-            await chat.send_message(f"Агент «{raw}» не найден. /agents — список.")
+        ws = await queries.get_user_workspace_chat_id(conn, user.id)
+        if ws is None:
+            await chat.send_message(
+                "Сначала привяжи группу: /link_workspace\nИнструкция: /workspace",
+                **kw,
+            )
             return
+
+        agent = await queries.find_agent_by_name_hint(conn, user.id, raw)
+        created = False
+        if agent is None:
+            max_a = queries.max_agents_for_plan(user.plan)
+            cnt = await queries.count_active_agents(conn, user.id)
+            if cnt >= max_a:
+                await chat.send_message(
+                    f"Агент «{raw}» не найден, лимит агентов ({max_a}). /agents — список, /upgrade — тариф.",
+                    **kw,
+                )
+                return
+            persona = default_persona_for_type("custom", raw, {})
+            agent = await queries.insert_agent(
+                conn,
+                user.id,
+                name=raw[:80],
+                agent_type="custom",
+                system_prompt=(
+                    f"Ты — агент «{raw}». Помогаешь пользователю в этой области: "
+                    "поиск, планирование, черновики, ссылки. Без оплаты от его имени."
+                ),
+                tools=["custom"],
+                metadata=merge_persona({}, persona),
+            )
+            created = True
+
         msg, _tid = await telegram_forum.create_topic_for_agent(
-            context.bot, conn, user, agent
+            context.bot, conn, user, agent, title=raw[:80]
         )
-    await chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
+        if created:
+            msg = f"Создан агент «{agent.name}».\n\n{msg}"
+    await chat.send_message(msg, **kw)
 
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

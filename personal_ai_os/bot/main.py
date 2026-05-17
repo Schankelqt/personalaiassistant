@@ -48,7 +48,10 @@ def build_pt_app(ctx: BotContext) -> Application:
     app.add_handler(CommandHandler("topic", commands.cmd_topic))
     app.add_handler(CommandHandler("topics", commands.cmd_topics))
     # В топиках форума slash-команда иногда приходит без entity «bot_command»
-    _ws_cmd = filters.Regex(r"(?i)^/(link_workspace|topic|topics|workspace)(@\w+)?\s*$")
+    _ws_cmd = filters.Regex(
+        r"(?i)^/(link_workspace|topics|workspace)(@\w+)?\s*$|"
+        r"^/topic(@\w+)?(\s+.+|.+)?$"
+    )
     app.add_handler(MessageHandler(_ws_cmd, commands.cmd_workspace_router), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.on_text))
     return app

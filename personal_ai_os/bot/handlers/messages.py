@@ -19,12 +19,13 @@ _MAX_USER_TEXT_LEN = 4000
 
 
 def _topic_request_pattern(text: str) -> bool:
-    t = text.lower()
+    t = text.lower().strip()
+    if re.match(r"(?i)^/topic(@\w+)?(\s+.+|.+)?$", t):
+        return True
     return bool(
         re.search(
             r"(открой|создай|новый)\s+(топик|тему)|"
-            r"изолируй\s+агент|"
-            r"/topic\b",
+            r"изолируй\s+агент",
             t,
         )
     )
