@@ -36,6 +36,8 @@ def build_pt_app(ctx: BotContext) -> Application:
     app.add_handler(CommandHandler("feedback", commands.cmd_feedback))
     app.add_handler(CommandHandler("referral", commands.cmd_referral))
     app.add_handler(CommandHandler("agents", commands.cmd_agents))
+    app.add_handler(CommandHandler("skills", commands.cmd_skills))
+    app.add_handler(CommandHandler("skill", commands.cmd_skill))
     app.add_handler(CommandHandler("people", commands.cmd_people))
     app.add_handler(CommandHandler("status", commands.cmd_status))
     app.add_handler(CommandHandler("delete_my_data", commands.cmd_delete_my_data))

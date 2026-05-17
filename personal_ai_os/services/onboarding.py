@@ -110,6 +110,12 @@ async def finalize_onboarding(conn: Any, user_id: Any, profile: dict[str, Any]) 
             ),
         )
 
+    from personal_ai_os.skills.factory import spawn_matched_skill_agents
+
+    user_row = await queries.get_user_by_id(conn, user_id)
+    if user_row is not None:
+        await spawn_matched_skill_agents(conn, user_row, profile, bot=None)
+
 
 async def handle_onboarding_message(
     conn: Any,
@@ -183,12 +189,14 @@ async def handle_onboarding_message(
         await clear_onboarding(redis, user.id)
         agents = await queries.list_agents(conn, user.id)
         agent_names = ", ".join(a.name for a in agents)
+        skill_hint = (
+            "\nСкиллы: /skills — каталог, /skill <id> — новый агент с инструментами."
+        )
         return (
             "Онбординг завершён. Созданы агенты: "
             f"{agent_names}.\n\n"
             "Подключи интеграции: «подключи Google Calendar» или «подключи Jira». "
-            "Команды: /agents, /status, /people.",
-            True,
+            f"Команды: /agents, /status, /people.{skill_hint}"
         )
 
     await clear_onboarding(redis, user.id)

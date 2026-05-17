@@ -87,6 +87,47 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.effective_chat.send_message("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from personal_ai_os.skills.catalog import list_skills
+
+    lines = [
+        "Каталог скиллов (агент + инструменты + изолированный топик):",
+        "",
+    ]
+    for s in list_skills():
+        tools = ", ".join(s.tool_names) if s.tool_names else "консультация"
+        lines.append(f"• {s.id} — {s.name}\n  {s.description}\n  tools: {tools}")
+    lines.append("\nСоздать: /skill <id>  (пример: /skill weather)")
+    await update.effective_chat.send_message("\n".join(lines))
+
+
+async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ctx: BotContext = context.application.bot_data["ctx"]
+    if not update.effective_chat or not update.effective_user:
+        return
+    if not context.args:
+        await update.effective_chat.send_message("Укажи id скилла: /skill weather\nКаталог: /skills")
+        return
+    skill_id = context.args[0].strip().lower()
+    from personal_ai_os.db import queries
+    from personal_ai_os.skills.factory import spawn_skill_agent
+
+    async with ctx.pool.acquire() as conn:
+        user = await queries.get_user_by_telegram(conn, update.effective_user.id)
+        if not user:
+            await update.effective_chat.send_message("Сначала /start")
+            return
+        _agent, msg = await spawn_skill_agent(
+            conn,
+            user,
+            skill_id,
+            {},
+            bot=context.bot,
+            create_topic=True,
+        )
+    await update.effective_chat.send_message(msg)
+
+
 async def cmd_people(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ctx: BotContext = context.application.bot_data["ctx"]
     if not update.effective_chat or not update.effective_user:
@@ -238,6 +279,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/feedback — оценка ответа: /feedback <message_ref> + или - [комментарий]\n"
         "/referral — твоя реферальная ссылка\n"
         "/agents — список агентов\n"
+        "/skills — каталог скиллов (поиск, погода, путешествия…)\n"
+        "/skill <id> — создать агента из скилла + топик в группе\n"
         "/people — люди и ДР\n"
         "/status — тариф и токены\n"
         "/upgrade — оплата\n"

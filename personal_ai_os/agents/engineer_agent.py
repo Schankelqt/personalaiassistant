@@ -175,6 +175,23 @@ async def run_engineer(
                 "required": ["agent_id"],
             },
         },
+        {
+            "name": "list_skills_catalog",
+            "description": "Список доступных скиллов (id, название, инструменты)",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "spawn_skill_agent",
+            "description": (
+                "Создать агента из каталога скиллов по skill_id "
+                "(web_search, weather, travel, …) и топик в группе."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {"skill_id": {"type": "string"}},
+                "required": ["skill_id"],
+            },
+        },
     ]
 
     async def exec_tool(name: str, payload: dict[str, Any]) -> str:
@@ -252,6 +269,22 @@ async def run_engineer(
             title = payload.get("topic_title")
             msg, _ = await telegram_forum.create_topic_for_agent(
                 bot, conn, user, target, title=title
+            )
+            return msg
+        if name == "list_skills_catalog":
+            from personal_ai_os.skills.catalog import list_skills
+
+            lines = []
+            for s in list_skills():
+                tools = ", ".join(s.tool_names) if s.tool_names else "—"
+                lines.append(f"• {s.id} — {s.name}: {tools}")
+            return "Каталог скиллов:\n" + "\n".join(lines)
+        if name == "spawn_skill_agent":
+            from personal_ai_os.skills.factory import spawn_skill_agent
+
+            sid = str(payload.get("skill_id") or "").strip()
+            _agent, msg = await spawn_skill_agent(
+                conn, user, sid, {}, bot=bot, create_topic=True
             )
             return msg
         return "?"

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5-20251001", validation_alias="ANTHROPIC_MODEL_HAIKU"
     )
 
+    tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
+
     oauth_encryption_key_hex: str = Field(validation_alias="OAUTH_ENCRYPTION_KEY")
 
     google_client_id: str = Field(default="", validation_alias="GOOGLE_CLIENT_ID")
