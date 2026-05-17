@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 from telegram import InputFile, Update
 from telegram.constants import ChatType
@@ -9,12 +10,20 @@ from telegram.ext import ContextTypes
 
 from personal_ai_os.agents.meta_agent import dispatch_sub_agent
 from personal_ai_os.bot.setup import BotContext
+from personal_ai_os.core.file_ingest import format_ingest_for_prompt, ingest_file
 from personal_ai_os.core.message_attachments import attachments_begin, attachments_drain
 from personal_ai_os.core.security import looks_like_prompt_injection
 from personal_ai_os.services import telegram_forum
 
+logger = logging.getLogger(__name__)
 
 _MAX_USER_TEXT_LEN = 4000
+_IMAGE_MEDIA = {
+    "image/jpeg": "image/jpeg",
+    "image/png": "image/png",
+    "image/webp": "image/webp",
+    "image/gif": "image/gif",
+}
 
 
 def _topic_request_pattern(text: str) -> bool:
@@ -50,7 +59,7 @@ async def _send_reply(
                 **kwargs,
             )
         except Exception:
-            logging.getLogger(__name__).exception("send_document failed file=%s", fname)
+            logger.exception("send_document failed file=%s", fname)
 
 
 async def _check_token_budget(user, tg_user_id: int) -> str | None:
@@ -64,26 +73,51 @@ async def _check_token_budget(user, tg_user_id: int) -> str | None:
     return None
 
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger = logging.getLogger(__name__)
+async def _download_file_bytes(bot, file_id: str) -> bytes:
+    tg_file = await bot.get_file(file_id)
+    data = await tg_file.download_as_bytearray()
+    return bytes(data)
+
+
+def _guess_image_media_type(filename: str | None, mime: str | None) -> str:
+    if mime and mime in _IMAGE_MEDIA:
+        return mime
+    if filename and "." in filename:
+        ext = filename.rsplit(".", 1)[-1].lower()
+        if ext in ("jpg", "jpeg"):
+            return "image/jpeg"
+        if ext == "png":
+            return "image/png"
+        if ext == "webp":
+            return "image/webp"
+        if ext == "gif":
+            return "image/gif"
+    return "image/jpeg"
+
+
+async def _route_user_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    text: str,
+    image_parts: list[tuple[str, bytes]] | None = None,
+) -> None:
     ctx: BotContext = context.application.bot_data["ctx"]
     message = update.message
-    text = (message and message.text) or ""
-    if not text.strip():
-        return
-    if len(text) > _MAX_USER_TEXT_LEN:
-        text = text[:_MAX_USER_TEXT_LEN]
     tg_user = update.effective_user
     chat = update.effective_chat
-    if not tg_user or not chat:
+    if not tg_user or not chat or not message:
         return
+
+    if len(text) > _MAX_USER_TEXT_LEN:
+        text = text[:_MAX_USER_TEXT_LEN]
 
     from personal_ai_os.core.limits import limits_disabled
 
     if not limits_disabled() and not await ctx.rate_limiter.check(str(tg_user.id)):
         await chat.send_message("Слишком много сообщений. Подождите минуту.")
         return
-    if looks_like_prompt_injection(text):
+    if text.strip() and looks_like_prompt_injection(text):
         await chat.send_message(
             "Не могу раскрывать системные инструкции или служебные промпты. "
             "Сформулируй задачу по сути, и я помогу."
@@ -93,7 +127,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from personal_ai_os.db import queries
     from personal_ai_os.services import onboarding
 
-    thread_id = message.message_thread_id if message else None
+    thread_id = message.message_thread_id
     chat_id = chat.id
     is_group = chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
@@ -113,7 +147,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply, _done = await onboarding.handle_onboarding_message(
                 conn, ctx.redis, user, text, claude=ctx.meta.claude
             )
-            await chat.send_message(reply)
+            await chat.send_message(reply, message_thread_id=thread_id)
             return
 
         budget_msg = await _check_token_budget(user, tg_user.id)
@@ -137,13 +171,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         bot = context.bot
         attachments_begin()
+        link_hint = ""
 
-        # --- Group / supergroup (forum topics optional) ---
         if is_group:
             workspace_chat = await queries.get_user_workspace_chat_id(conn, user.id)
             linked_here = workspace_chat is not None and workspace_chat == chat_id
 
-            if _topic_request_pattern(text):
+            if text.strip() and _topic_request_pattern(text):
                 from personal_ai_os.bot.handlers.commands import handle_topic_command
 
                 await handle_topic_command(update, context, user, text)
@@ -156,7 +190,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 ws_user, bound_agent, use_meta = await telegram_forum.resolve_agent_for_update(
                     conn, chat_id, thread_id, tg_user.id
                 )
-                # Чужой пользователь в привязанной группе — игнорируем
                 if ws_user is None:
                     return
                 user = ws_user
@@ -166,6 +199,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "включи Topics, дай боту право Manage Topics и отправь "
                     "`/link_workspace` в этой группе._"
                 )
+
             try:
                 if bound_agent is not None and not use_meta:
                     msg = await dispatch_sub_agent(
@@ -180,7 +214,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         auto_create_topic=False,
                     )
                 else:
-                    msg = await ctx.meta.handle_message(conn, user, text, bot=bot)
+                    msg = await ctx.meta.handle_message(
+                        conn, user, text, bot=bot, image_parts=image_parts
+                    )
                     if not linked_here:
                         msg = (msg or "") + link_hint
             except Exception:
@@ -191,15 +227,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _send_reply(update, chat, msg, thread_id=thread_id, files=files)
             return
 
-        # --- Private chat ---
         try:
-            if _topic_request_pattern(text):
+            if text.strip() and _topic_request_pattern(text):
                 from personal_ai_os.bot.handlers.commands import handle_topic_command
 
                 await handle_topic_command(update, context, user, text)
                 return
 
-            msg = await ctx.meta.handle_message(conn, user, text, bot=bot)
+            msg = await ctx.meta.handle_message(
+                conn, user, text, bot=bot, image_parts=image_parts
+            )
         except Exception:
             logger.exception("meta handle_message failed: user_id=%s", user.id)
             msg = (
@@ -209,3 +246,72 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         finally:
             files = attachments_drain()
         await _send_reply(update, chat, msg, thread_id=None, files=files)
+
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    text = (message and message.text) or ""
+    if not text.strip():
+        return
+    await _route_user_message(update, context, text=text)
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not message.document:
+        return
+    doc = message.document
+    caption = (message.caption or "").strip()
+    filename = doc.file_name or "file.bin"
+    mime = doc.mime_type or ""
+
+    try:
+        raw = await _download_file_bytes(context.bot, doc.file_id)
+    except Exception:
+        logger.exception("document download failed")
+        await message.reply_text("Не удалось скачать файл из Telegram.")
+        return
+
+    if mime.startswith("image/") or filename.lower().endswith(
+        (".png", ".jpg", ".jpeg", ".webp", ".gif")
+    ):
+        media = _guess_image_media_type(filename, mime)
+        prompt = caption or "Пользователь прислал изображение (файл). Опиши и ответь по задаче."
+        await _route_user_message(
+            update,
+            context,
+            text=prompt,
+            image_parts=[(media, raw)],
+        )
+        return
+
+    ingested = ingest_file(raw, filename)
+    body = format_ingest_for_prompt(ingested, user_caption=caption)
+    prompt = f"{caption}\n\n{body}".strip() if caption else body
+    if not prompt.strip():
+        await message.reply_text("Не удалось извлечь текст из файла.")
+        return
+    await _route_user_message(update, context, text=prompt)
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not message.photo:
+        return
+    photo = message.photo[-1]
+    caption = (message.caption or "").strip()
+
+    try:
+        raw = await _download_file_bytes(context.bot, photo.file_id)
+    except Exception:
+        logger.exception("photo download failed")
+        await message.reply_text("Не удалось скачать фото.")
+        return
+
+    prompt = caption or "Пользователь прислал скриншот/фото. Разбери изображение и ответь по задаче."
+    await _route_user_message(
+        update,
+        context,
+        text=prompt,
+        image_parts=[("image/jpeg", raw)],
+    )

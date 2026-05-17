@@ -56,6 +56,8 @@ def build_pt_app(ctx: BotContext) -> Application:
     )
     app.add_handler(MessageHandler(_ws_cmd, commands.cmd_workspace_router), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.on_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, messages.on_document))
+    app.add_handler(MessageHandler(filters.PHOTO, messages.on_photo))
     return app
 
 

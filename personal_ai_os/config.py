@@ -27,6 +27,15 @@ class Settings(BaseSettings):
 
     tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
 
+    file_upload_max_bytes: int = Field(
+        default=15 * 1024 * 1024,
+        validation_alias="FILE_UPLOAD_MAX_BYTES",
+    )
+    file_extract_max_chars: int = Field(
+        default=48_000,
+        validation_alias="FILE_EXTRACT_MAX_CHARS",
+    )
+
     oauth_encryption_key_hex: str = Field(validation_alias="OAUTH_ENCRYPTION_KEY")
 
     google_client_id: str = Field(default="", validation_alias="GOOGLE_CLIENT_ID")
