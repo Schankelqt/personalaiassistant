@@ -236,7 +236,7 @@ async def execute_skill_tool(
     claude: ClaudeClient,
     conn: asyncpg.Connection | None,
     user_id: UUID | None,
-    _redis: Redis | None,
+    redis: Redis | None = None,
 ) -> str:
     if name == "get_weather":
         return await tool_get_weather(settings, payload)
