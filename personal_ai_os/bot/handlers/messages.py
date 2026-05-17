@@ -110,7 +110,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     message_thread_id=thread_id,
                 )
                 return
-            reply, _done = await onboarding.handle_onboarding_message(conn, ctx.redis, user, text)
+            reply, _done = await onboarding.handle_onboarding_message(
+                conn, ctx.redis, user, text, claude=ctx.meta.claude
+            )
             await chat.send_message(reply)
             return
 

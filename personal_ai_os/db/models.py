@@ -109,6 +109,34 @@ class OAuthTokenRow(BaseModel):
     jira_base_url: str | None = None
 
 
+class KnowledgeEntryRow(BaseModel):
+    id: UUID
+    user_id: UUID | None = None
+    scope: str
+    category: str
+    title: str
+    content: str
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def parse_tags(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata_kb(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v or {}
+
+
 class BillingEventCreate(BaseModel):
     user_id: UUID
     event_type: str

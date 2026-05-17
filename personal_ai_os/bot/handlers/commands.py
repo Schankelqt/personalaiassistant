@@ -9,10 +9,7 @@ from telegram.ext import ContextTypes
 if TYPE_CHECKING:
     from personal_ai_os.bot.setup import BotContext
 
-WELCOME = (
-    "Привет! Это Personal AI OS — твой мультиагентный ассистент в Telegram.\n"
-    "Ниже первый вопрос онбординга (≈5 минут)."
-)
+WELCOME = "Personal AI OS — настраиваем ассистента в диалоге (≈2–3 минуты)."
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -44,7 +41,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         if not user.onboarding_complete:
             await onboarding.begin_onboarding(redis, user.id)
-            await update.effective_chat.send_message(f"{WELCOME}\n\n{onboarding.QUESTIONS[0]}")
+            opener = await onboarding.start_onboarding_message(
+                conn, redis, meta.claude, user
+            )
+            await update.effective_chat.send_message(f"{WELCOME}\n\n{opener}")
         else:
             await update.effective_chat.send_message(
                 "С возвращением! Пиши запрос в чат или /help.",
@@ -64,8 +64,11 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.effective_chat.send_message("Сначала /start")
             return
         await queries.update_user_profile(conn, user.id, onboarding_complete=False)
-    await onboarding.begin_onboarding(ctx.redis, user.id)
-    await update.effective_chat.send_message(onboarding.QUESTIONS[0])
+        await onboarding.begin_onboarding(ctx.redis, user.id)
+        opener = await onboarding.start_onboarding_message(
+            conn, ctx.redis, ctx.meta.claude, user
+        )
+    await update.effective_chat.send_message(opener)
 
 
 async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

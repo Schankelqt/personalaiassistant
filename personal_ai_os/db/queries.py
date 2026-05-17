@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import uuid
 from datetime import date, datetime
@@ -14,6 +15,7 @@ from personal_ai_os.config import get_settings
 from personal_ai_os.db.models import (
     AgentRow,
     AgentTopicRow,
+    KnowledgeEntryRow,
     MemoryEntryRow,
     OAuthTokenRow,
     Plan,
@@ -817,6 +819,130 @@ async def list_agent_topics(conn: asyncpg.Connection, user_id: uuid.UUID) -> lis
         user_id,
     )
     return [AgentTopicRow.model_validate(dict(r)) for r in rows]
+
+
+async def search_knowledge(
+    conn: asyncpg.Connection,
+    user_id: uuid.UUID,
+    query: str,
+    *,
+    limit: int = 8,
+) -> list[KnowledgeEntryRow]:
+    tokens = [t for t in re.findall(r"[\wа-яА-ЯёЁ]{3,}", (query or "").lower()) if t][:6]
+    if not tokens:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM knowledge_entries
+            WHERE scope = 'system' OR (scope = 'user' AND user_id = $1)
+            ORDER BY updated_at DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
+        return [KnowledgeEntryRow.model_validate(dict(r)) for r in rows]
+
+    patterns = [f"%{t}%" for t in tokens]
+    conds = " OR ".join(
+        f"(title ILIKE ${i + 2} OR content ILIKE ${i + 2})" for i in range(len(patterns))
+    )
+    sql = f"""
+        SELECT * FROM knowledge_entries
+        WHERE (scope = 'system' OR (scope = 'user' AND user_id = $1))
+          AND ({conds})
+        ORDER BY
+          CASE WHEN scope = 'user' THEN 0 ELSE 1 END,
+          updated_at DESC
+        LIMIT ${len(patterns) + 2}
+    """
+    rows = await conn.fetch(sql, user_id, *patterns, limit)
+    return [KnowledgeEntryRow.model_validate(dict(r)) for r in rows]
+
+
+async def list_knowledge_by_category(
+    conn: asyncpg.Connection,
+    user_id: uuid.UUID,
+    *,
+    categories: tuple[str, ...],
+) -> list[KnowledgeEntryRow]:
+    rows = await conn.fetch(
+        """
+        SELECT * FROM knowledge_entries
+        WHERE scope = 'user' AND user_id = $1 AND category = ANY($2::text[])
+        ORDER BY updated_at DESC
+        """,
+        user_id,
+        list(categories),
+    )
+    return [KnowledgeEntryRow.model_validate(dict(r)) for r in rows]
+
+
+async def list_system_knowledge(
+    conn: asyncpg.Connection,
+    *,
+    categories: tuple[str, ...] | None = None,
+) -> list[KnowledgeEntryRow]:
+    if categories:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM knowledge_entries
+            WHERE scope = 'system' AND category = ANY($1::text[])
+            ORDER BY category, title
+            """,
+            list(categories),
+        )
+    else:
+        rows = await conn.fetch(
+            "SELECT * FROM knowledge_entries WHERE scope = 'system' ORDER BY category, title"
+        )
+    return [KnowledgeEntryRow.model_validate(dict(r)) for r in rows]
+
+
+async def upsert_knowledge_entry(
+    conn: asyncpg.Connection,
+    *,
+    user_id: uuid.UUID,
+    category: str,
+    title: str,
+    content: str,
+    tags: list[str] | None = None,
+) -> KnowledgeEntryRow:
+    existing = await conn.fetchrow(
+        """
+        SELECT id FROM knowledge_entries
+        WHERE user_id = $1 AND scope = 'user' AND category = $2 AND title = $3
+        """,
+        user_id,
+        category,
+        title,
+    )
+    if existing:
+        row = await conn.fetchrow(
+            """
+            UPDATE knowledge_entries
+            SET content = $2, tags = $3::text[], updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            """,
+            existing["id"],
+            content,
+            tags or [],
+        )
+    else:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO knowledge_entries (user_id, scope, category, title, content, tags)
+            VALUES ($1, 'user', $2, $3, $4, $5::text[])
+            RETURNING *
+            """,
+            user_id,
+            category,
+            title,
+            content,
+            tags or [],
+        )
+    assert row is not None
+    return KnowledgeEntryRow.model_validate(dict(row))
 
 
 async def find_agent_by_name_hint(
