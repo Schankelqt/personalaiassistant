@@ -9,7 +9,6 @@ from telegram.ext import ContextTypes
 
 from personal_ai_os.agents.meta_agent import dispatch_sub_agent
 from personal_ai_os.bot.setup import BotContext
-from personal_ai_os.config import get_settings
 from personal_ai_os.core.message_attachments import attachments_begin, attachments_drain
 from personal_ai_os.core.security import looks_like_prompt_injection
 from personal_ai_os.services import telegram_forum
@@ -55,9 +54,12 @@ async def _send_reply(
 
 
 async def _check_token_budget(user, tg_user_id: int) -> str | None:
-    unlimited = tg_user_id in get_settings().unlimited_telegram_id_set
+    from personal_ai_os.core.limits import limits_disabled, user_has_unlimited_tokens
+
+    if limits_disabled() or user_has_unlimited_tokens(user):
+        return None
     eff = user.daily_token_limit + user.token_balance
-    if not unlimited and user.daily_tokens_used >= eff:
+    if user.daily_tokens_used >= eff:
         return "Дневной лимит токенов исчерпан. /status или /upgrade."
     return None
 
@@ -76,7 +78,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not tg_user or not chat:
         return
 
-    if not await ctx.rate_limiter.check(str(tg_user.id)):
+    from personal_ai_os.core.limits import limits_disabled
+
+    if not limits_disabled() and not await ctx.rate_limiter.check(str(tg_user.id)):
         await chat.send_message("Слишком много сообщений. Подождите минуту.")
         return
     if looks_like_prompt_injection(text):
@@ -115,10 +119,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await chat.send_message(budget_msg, message_thread_id=thread_id)
             return
 
-        unlimited = tg_user.id in get_settings().unlimited_telegram_id_set
+        from personal_ai_os.core.limits import user_has_unlimited_tokens
+
         eff = user.daily_token_limit + user.token_balance
         if (
-            not unlimited
+            not user_has_unlimited_tokens(user)
             and eff > 0
             and user.daily_tokens_used >= int(0.8 * eff)
             and user.daily_tokens_used < eff

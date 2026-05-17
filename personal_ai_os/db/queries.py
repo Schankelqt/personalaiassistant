@@ -233,6 +233,10 @@ def max_custom_agents_for_plan(plan: str) -> int:
 
 
 def can_add_custom_agent(plan: str, custom_count: int) -> bool:
+    from personal_ai_os.core.limits import limits_disabled
+
+    if limits_disabled():
+        return True
     return custom_count < max_custom_agents_for_plan(plan)
 
 
@@ -259,9 +263,11 @@ async def log_tokens(
 
 async def try_consume_tokens(conn: asyncpg.Connection, user: UserRow, n: int) -> bool:
     """Reserve n tokens; returns False if budget exceeded."""
+    from personal_ai_os.core.limits import limits_disabled, user_has_unlimited_tokens
+
     if n <= 0:
         return True
-    if user.telegram_id in get_settings().unlimited_telegram_id_set:
+    if limits_disabled() or user_has_unlimited_tokens(user):
         return True
     row = await conn.fetchrow("SELECT daily_tokens_used, token_balance FROM users WHERE id = $1 FOR UPDATE", user.id)
     if row is None:

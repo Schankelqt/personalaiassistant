@@ -54,6 +54,10 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = Field(default=30, validation_alias="RATE_LIMIT_PER_MINUTE")
 
+    # Testing: no token cap, unlimited custom agents, no per-minute rate limit.
+    # Set DISABLE_LIMITS=false before opening to other users.
+    disable_limits: bool = Field(default=True, validation_alias="DISABLE_LIMITS")
+
     # Comma-separated Telegram numeric ids: skip daily token cap (messages + LLM billing).
     # Set to empty string to disable.
     unlimited_telegram_ids: str = Field(
