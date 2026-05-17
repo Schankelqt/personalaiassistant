@@ -71,6 +71,10 @@ async def lifespan(app: FastAPI):
             pass
 
     pool = await get_pool()
+    async with pool.acquire() as conn:
+        from personal_ai_os.knowledge.sync import sync_working_context
+
+        await sync_working_context(conn)
     redis = aioredis.from_url(settings.redis_url, decode_responses=True)
     claude = ClaudeClient(settings)
     meta = MetaAgentService(claude, redis)

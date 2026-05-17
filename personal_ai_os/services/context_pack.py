@@ -64,10 +64,9 @@ async def build_onboarding_context(
     conn: asyncpg.Connection,
     user_message: str,
 ) -> str:
-    system_docs = await queries.list_system_knowledge(
-        conn, categories=("onboarding", "product")
-    )
+    _ = user_message
+    system_docs = await queries.list_system_knowledge(conn)
     return format_entries_block(
         system_docs,
-        header="Справка для ведения онбординга:",
+        header="Рабочий контекст (тон, продукт, онбординг, Meta):",
     )
