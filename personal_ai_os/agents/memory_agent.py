@@ -10,7 +10,8 @@ from dateutil import parser as date_parser
 from redis.asyncio import Redis
 
 from personal_ai_os.core.claude_client import ClaudeClient
-from personal_ai_os.core.session_store import append_message
+from personal_ai_os.core.prompt_builder import build_agent_system_prompt
+from personal_ai_os.core.session_store import append_message, get_messages
 from personal_ai_os.db import queries
 from personal_ai_os.db.models import AgentRow, UserRow
 
@@ -31,11 +32,14 @@ async def run_memory(
     user: UserRow,
     agent: AgentRow,
     query: str,
+    *,
+    thread_id: int | None = None,
 ) -> str:
-    system = f"""Ты — Memory-агент: персональная память (люди, дни рождения, заметки).
-Используй инструменты для изменений. Отвечай кратко по-русски.
-Пользователь: {user.full_name or 'без имени'}.
-"""
+    system = build_agent_system_prompt(
+        agent,
+        user,
+        preamble="Ты — Memory-агент: персональная память (люди, дни рождения, заметки).",
+    )
 
     tools = [
         {
@@ -162,10 +166,13 @@ async def run_memory(
             return r.text
         return "ok"
 
+    prior = await get_messages(redis, user.id, limit=20, thread_id=thread_id)
+    messages = prior + [{"role": "user", "content": query}]
+
     res = await claude.complete_with_tools(
         model=claude.pick_model(use_haiku=True),
-        system=system + "\n" + agent.system_prompt,
-        messages=[{"role": "user", "content": query}],
+        system=system,
+        messages=messages,
         tools=tools,
         tool_executor=exec_tool,
     )
@@ -174,6 +181,6 @@ async def run_memory(
         await queries.finalize_llm_usage(
             conn, u, agent.id, res.model, res.input_tokens, res.output_tokens
         )
-    await append_message(redis, user.id, "user", query)
-    await append_message(redis, user.id, "assistant", res.text)
+    await append_message(redis, user.id, "user", query, thread_id=thread_id)
+    await append_message(redis, user.id, "assistant", res.text, thread_id=thread_id)
     return res.text

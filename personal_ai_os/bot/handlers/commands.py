@@ -227,6 +227,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_chat.send_message(
         "/start — начать\n"
         "/setup — пройти онбординг снова\n"
+        "/workspace — как привязать супергруппу с топиками\n"
+        "/link_workspace — в группе: привязать рабочее пространство\n"
+        "/topic <агент> — создать топик для агента (изоляция контекста)\n"
+        "/topics — список топиков агентов\n"
         "/create — создать агента: /create Имя | Инструкции\n"
         "/agent_toggle — включить/выключить агента: /agent_toggle <id> on|off\n"
         "/settings — настройки (язык, TZ, напоминания)\n"
@@ -242,6 +246,127 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/export_my_data — выгрузка JSON\n"
         "/help — эта справка"
     )
+
+
+async def cmd_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from personal_ai_os.services.telegram_forum import WORKSPACE_SETUP_TEXT
+
+    if not update.effective_chat:
+        return
+    await update.effective_chat.send_message(WORKSPACE_SETUP_TEXT, parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_link_workspace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from personal_ai_os.db import queries
+    from personal_ai_os.services import telegram_forum
+
+    ctx: BotContext = context.application.bot_data["ctx"]
+    chat = update.effective_chat
+    tg_user = update.effective_user
+    if not chat or not tg_user:
+        return
+    if chat.type not in ("group", "supergroup"):
+        await chat.send_message("Эту команду отправь **в супергруппе** с включёнными темами.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    async with ctx.pool.acquire() as conn:
+        user = await queries.get_user_by_telegram(conn, tg_user.id)
+        if not user:
+            await chat.send_message("Сначала /start в личке с ботом.")
+            return
+        msg = await telegram_forum.link_workspace(
+            conn,
+            user,
+            chat.id,
+            is_forum=bool(getattr(chat, "is_forum", False)),
+        )
+    await chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+async def handle_topic_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user,
+    text: str,
+) -> None:
+    """Create forum topic for agent; used by /topic and NL triggers."""
+    from personal_ai_os.db import queries
+    from personal_ai_os.services import telegram_forum
+
+    ctx: BotContext = context.application.bot_data["ctx"]
+    chat = update.effective_chat
+    if not chat:
+        return
+
+    raw = " ".join(context.args or []).strip()
+    if not raw:
+        raw = text
+    for prefix in ("/topic", "открой тему", "создай тему", "создай топик", "открой топик"):
+        if raw.lower().startswith(prefix):
+            raw = raw[len(prefix) :].strip()
+            break
+    raw = raw.strip(" :—-")
+    if not raw:
+        await chat.send_message(
+            "Укажи агента: `/topic Память` или `/topic engineer`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    async with ctx.pool.acquire() as conn:
+        agent = await queries.find_agent_by_name_hint(conn, user.id, raw)
+        if agent is None:
+            await chat.send_message(f"Агент «{raw}» не найден. /agents — список.")
+            return
+        msg, _tid = await telegram_forum.create_topic_for_agent(
+            context.bot, conn, user, agent
+        )
+    await chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from personal_ai_os.db import queries
+
+    ctx: BotContext = context.application.bot_data["ctx"]
+    if not update.effective_chat or not update.effective_user:
+        return
+    async with ctx.pool.acquire() as conn:
+        user = await queries.get_user_by_telegram(conn, update.effective_user.id)
+        if not user:
+            await update.effective_chat.send_message("Сначала /start")
+            return
+    text = " ".join(context.args or []) or "/topic"
+    await handle_topic_command(update, context, user, text)
+
+
+async def cmd_topics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from personal_ai_os.db import queries
+
+    ctx: BotContext = context.application.bot_data["ctx"]
+    if not update.effective_chat or not update.effective_user:
+        return
+    async with ctx.pool.acquire() as conn:
+        user = await queries.get_user_by_telegram(conn, update.effective_user.id)
+        if not user:
+            await update.effective_chat.send_message("Сначала /start")
+            return
+        topics = await queries.list_agent_topics(conn, user.id)
+        ws = await queries.get_user_workspace_chat_id(conn, user.id)
+    if not ws:
+        await update.effective_chat.send_message(
+            "Рабочее пространство не привязано. /workspace — инструкция."
+        )
+        return
+    if not topics:
+        await update.effective_chat.send_message(
+            "Топиков пока нет. Создай: `/topic Память`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    lines = [f"Группа: `{ws}`", ""]
+    for t in topics:
+        lines.append(f"• **{t.topic_title}** — thread `{t.telegram_thread_id}` (agent `{t.agent_id}`)")
+    await update.effective_chat.send_message("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -286,7 +411,15 @@ async def cmd_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 "Engineer-агент не найден. Выполни /setup."
             )
             return
-        msg = await run_engineer(conn, ctx.redis, ctx.meta.claude, user, engineer, prompt)
+        msg = await run_engineer(
+            conn,
+            ctx.redis,
+            ctx.meta.claude,
+            user,
+            engineer,
+            prompt,
+            bot=context.bot,
+        )
     await update.effective_chat.send_message(msg[:4090])
 
 

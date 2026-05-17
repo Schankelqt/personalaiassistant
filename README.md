@@ -11,5 +11,7 @@ Telegram-native multi-agent personal assistant with Claude API.
 ## Quick start
 See [LAUNCH.md](LAUNCH.md) for full step-by-step deployment guide.
 
+Private product docs (BRD, context handoff, credentials) live in **`docs-private/`** on your machine only — that folder is gitignored.
+
 ## License
 Private. All rights reserved.

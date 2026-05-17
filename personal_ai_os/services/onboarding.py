@@ -5,6 +5,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from personal_ai_os.core.agent_persona import default_persona_for_type, merge_persona
 from personal_ai_os.db import queries
 from personal_ai_os.db.models import UserRow
 
@@ -72,8 +73,11 @@ async def finalize_onboarding(conn: Any, user_id: Any, profile: dict[str, Any]) 
         name="Engineer",
         agent_type="engineer",
         system_prompt=_default_engineer_prompt(profile),
-        tools=["create_custom_agent", "oauth", "excel"],
-        metadata={"role": "engineer"},
+        tools=["create_custom_agent", "oauth", "excel", "forum_topic"],
+        metadata=merge_persona(
+            {"role": "engineer"},
+            default_persona_for_type("engineer", "Engineer", profile),
+        ),
     )
     await queries.insert_agent(
         conn,
@@ -82,7 +86,10 @@ async def finalize_onboarding(conn: Any, user_id: Any, profile: dict[str, Any]) 
         agent_type="memory",
         system_prompt=_default_memory_prompt(profile),
         tools=["memory"],
-        metadata={"role": "memory"},
+        metadata=merge_persona(
+            {"role": "memory"},
+            default_persona_for_type("memory", "Память", profile),
+        ),
     )
     tl = (profile.get("tools") or "").lower()
     sp = (profile.get("sphere") or "").lower()
@@ -97,7 +104,10 @@ async def finalize_onboarding(conn: Any, user_id: Any, profile: dict[str, Any]) 
             agent_type="work",
             system_prompt=_default_work_prompt(profile),
             tools=["jira", "gcal"],
-            metadata={"role": "work"},
+            metadata=merge_persona(
+                {"role": "work"},
+                default_persona_for_type("work", "Работа", profile),
+            ),
         )
 
 

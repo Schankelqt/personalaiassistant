@@ -152,13 +152,18 @@ NOTES.md
 TODO.local.md
 .scratch/
 
-# ----------- Стратегическая документация (не в репо) -----------
+# ----------- Локальная документация (не в репо) -----------
+# Вся стратегия и контекст — в docs-private/ (см. docs-private/README.md у себя локально).
+docs-private/
 Документация/
 Documentation/
-docs-private/
 Контекст.md
+Контекст*.md
+Констекст*.md
 context.md
 context-*.md
 *.docx
 *.doc
 ~$*
+CREDENTIALS_AND_ACCESS_NEEDED.md
+brd_personal_ai_os.txt

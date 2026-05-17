@@ -6,14 +6,18 @@ from urllib.parse import urlencode
 
 import asyncpg
 from redis.asyncio import Redis
+from telegram import Bot
 
 from personal_ai_os.config import get_settings
+from personal_ai_os.core.agent_persona import default_persona_for_type, merge_persona
 from personal_ai_os.core.claude_client import ClaudeClient
 from personal_ai_os.core.excel_export import build_xlsx_from_spec
 from personal_ai_os.core.message_attachments import attachments_append
+from personal_ai_os.core.prompt_builder import build_agent_system_prompt
 from personal_ai_os.core.session_store import append_message
 from personal_ai_os.db import queries
 from personal_ai_os.db.models import AgentRow, UserRow
+from personal_ai_os.services import telegram_forum
 
 
 async def run_engineer(
@@ -23,13 +27,16 @@ async def run_engineer(
     user: UserRow,
     agent: AgentRow,
     query: str,
+    *,
+    thread_id: int | None = None,
+    bot: Bot | None = None,
 ) -> str:
     settings = get_settings()
-    system = f"""Ты — Engineer-агент: настройка ассистента, интеграции, создание агентов, таблицы Excel.
-Отвечай по-русски, кратко. Используй инструменты.
-Для .xlsx вызывай create_excel_workbook с file_name и sheets (headers опционально, rows — массив строк-ячеек).
-{agent.system_prompt}
-"""
+    system = build_agent_system_prompt(
+        agent,
+        user,
+        preamble="Ты — Engineer-агент: настройка, интеграции, агенты, Excel, топики Telegram.",
+    )
 
     async def oauth_google_link() -> str:
         if not settings.google_client_id:
@@ -153,6 +160,21 @@ async def run_engineer(
                 "required": ["file_name", "sheets"],
             },
         },
+        {
+            "name": "create_agent_forum_topic",
+            "description": (
+                "Создать изолированный топик в рабочей супергруппе для агента "
+                "(нужен /link_workspace). agent_id — UUID или имя агента."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "topic_title": {"type": "string"},
+                },
+                "required": ["agent_id"],
+            },
+        },
     ]
 
     async def exec_tool(name: str, payload: dict[str, Any]) -> str:
@@ -161,16 +183,21 @@ async def run_engineer(
             cnt = await queries.count_active_agents(conn, user.id)
             if cnt >= max_a:
                 return f"Лимит агентов для тарифа ({max_a}). Обновите план: /upgrade"
+            aname = payload.get("name") or "Агент"
+            persona = default_persona_for_type("custom", aname, {})
             nid = await queries.insert_agent(
                 conn,
                 user.id,
-                name=payload.get("name") or "Агент",
+                name=aname,
                 agent_type="custom",
                 system_prompt=payload.get("instructions") or "",
-                tools=[],
-                metadata={},
+                tools=["custom"],
+                metadata=merge_persona({}, persona),
             )
-            return f"Создан агент {nid.name} ({nid.id})"
+            return (
+                f"Создан агент {nid.name} ({nid.id}). "
+                f"Изоляция в топике: /topic {nid.name}"
+            )
         if name == "toggle_agent":
             try:
                 aid = uuid.UUID(payload.get("agent_id", ""))
@@ -209,6 +236,23 @@ async def run_engineer(
                 return f"Не удалось собрать Excel: {e}"
             attachments_append(fname, raw)
             return f"Файл «{fname}» сформирован и будет отправлен вместе с ответом."
+        if name == "create_agent_forum_topic":
+            if bot is None:
+                return "Создание топика недоступно в этом контексте. Используй /topic <агент> в чате."
+            hint = str(payload.get("agent_id") or "")
+            target = await queries.find_agent_by_name_hint(conn, user.id, hint)
+            if target is None:
+                try:
+                    target = await queries.get_agent(conn, user.id, uuid.UUID(hint))
+                except ValueError:
+                    target = None
+            if target is None:
+                return f"Агент не найден: {hint}. /agents — список."
+            title = payload.get("topic_title")
+            msg, _ = await telegram_forum.create_topic_for_agent(
+                bot, conn, user, target, title=title
+            )
+            return msg
         return "?"
 
     res = await claude.complete_with_tools(
@@ -223,6 +267,6 @@ async def run_engineer(
         await queries.finalize_llm_usage(
             conn, u, agent.id, res.model, res.input_tokens, res.output_tokens
         )
-    await append_message(redis, user.id, "user", query)
-    await append_message(redis, user.id, "assistant", res.text)
+    await append_message(redis, user.id, "user", query, thread_id=thread_id)
+    await append_message(redis, user.id, "assistant", res.text, thread_id=thread_id)
     return res.text

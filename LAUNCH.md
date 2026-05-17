@@ -496,4 +496,4 @@ docker compose logs bot --since 1h | grep -i "anthropic\|error"
 2. Параллельно начать smoke-test landing page для холодного трафика.
 3. После 10 NPS ≥ 7 — открыть закрытую бету и подключать Paddle.
 
-Документация по дальнейшим этапам — в `agent/Документация/`.
+Документация по продукту и стратегии — локально в `docs-private/` (в git не попадает). См. `docs-private/README.md`.

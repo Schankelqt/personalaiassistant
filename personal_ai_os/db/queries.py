@@ -13,6 +13,7 @@ import asyncpg
 from personal_ai_os.config import get_settings
 from personal_ai_os.db.models import (
     AgentRow,
+    AgentTopicRow,
     MemoryEntryRow,
     OAuthTokenRow,
     Plan,
@@ -685,3 +686,120 @@ async def reset_daily_tokens_all(conn: asyncpg.Connection) -> None:
 async def users_for_birthday_scan(conn: asyncpg.Connection) -> list[UserRow]:
     rows = await conn.fetch("SELECT DISTINCT u.* FROM users u INNER JOIN memory_entries m ON m.user_id = u.id")
     return [UserRow.model_validate(dict(r)) for r in rows]
+
+
+async def set_user_workspace(conn: asyncpg.Connection, user_id: uuid.UUID, chat_id: int) -> None:
+    await conn.execute(
+        """
+        UPDATE users
+        SET telegram_workspace_chat_id = $2, workspace_linked_at = NOW(), updated_at = NOW()
+        WHERE id = $1
+        """,
+        user_id,
+        chat_id,
+    )
+
+
+async def get_user_workspace_chat_id(conn: asyncpg.Connection, user_id: uuid.UUID) -> int | None:
+    val = await conn.fetchval(
+        "SELECT telegram_workspace_chat_id FROM users WHERE id = $1",
+        user_id,
+    )
+    return int(val) if val is not None else None
+
+
+async def get_user_by_workspace_chat(conn: asyncpg.Connection, chat_id: int) -> UserRow | None:
+    row = await conn.fetchrow(
+        "SELECT * FROM users WHERE telegram_workspace_chat_id = $1",
+        chat_id,
+    )
+    return UserRow.model_validate(dict(row)) if row else None
+
+
+async def insert_agent_topic(
+    conn: asyncpg.Connection,
+    *,
+    user_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    workspace_chat_id: int,
+    telegram_thread_id: int,
+    topic_title: str,
+) -> AgentTopicRow:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO agent_topics (user_id, agent_id, workspace_chat_id, telegram_thread_id, topic_title)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+        """,
+        user_id,
+        agent_id,
+        workspace_chat_id,
+        telegram_thread_id,
+        topic_title,
+    )
+    assert row is not None
+    return AgentTopicRow.model_validate(dict(row))
+
+
+async def get_agent_topic_by_thread(
+    conn: asyncpg.Connection,
+    workspace_chat_id: int,
+    telegram_thread_id: int,
+) -> AgentTopicRow | None:
+    row = await conn.fetchrow(
+        """
+        SELECT * FROM agent_topics
+        WHERE workspace_chat_id = $1 AND telegram_thread_id = $2 AND status = 'active'
+        """,
+        workspace_chat_id,
+        telegram_thread_id,
+    )
+    return AgentTopicRow.model_validate(dict(row)) if row else None
+
+
+async def get_active_topic_for_agent(
+    conn: asyncpg.Connection,
+    user_id: uuid.UUID,
+    agent_id: uuid.UUID,
+) -> AgentTopicRow | None:
+    row = await conn.fetchrow(
+        """
+        SELECT * FROM agent_topics
+        WHERE user_id = $1 AND agent_id = $2 AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        user_id,
+        agent_id,
+    )
+    return AgentTopicRow.model_validate(dict(row)) if row else None
+
+
+async def list_agent_topics(conn: asyncpg.Connection, user_id: uuid.UUID) -> list[AgentTopicRow]:
+    rows = await conn.fetch(
+        """
+        SELECT * FROM agent_topics
+        WHERE user_id = $1 AND status = 'active'
+        ORDER BY created_at
+        """,
+        user_id,
+    )
+    return [AgentTopicRow.model_validate(dict(r)) for r in rows]
+
+
+async def find_agent_by_name_hint(
+    conn: asyncpg.Connection,
+    user_id: uuid.UUID,
+    hint: str,
+) -> AgentRow | None:
+    hint = hint.strip().lower()
+    if not hint:
+        return None
+    agents = await list_agents(conn, user_id)
+    for a in agents:
+        if a.name.lower() == hint or str(a.id).lower().startswith(hint):
+            return a
+    for a in agents:
+        if hint in a.name.lower() or hint in a.agent_type.lower():
+            return a
+    return None

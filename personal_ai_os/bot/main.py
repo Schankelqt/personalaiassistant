@@ -43,6 +43,10 @@ def build_pt_app(ctx: BotContext) -> Application:
     app.add_handler(CommandHandler("history", commands.cmd_history))
     app.add_handler(CommandHandler("upgrade", commands.cmd_upgrade))
     app.add_handler(CommandHandler("help", commands.cmd_help))
+    app.add_handler(CommandHandler("workspace", commands.cmd_workspace))
+    app.add_handler(CommandHandler("link_workspace", commands.cmd_link_workspace))
+    app.add_handler(CommandHandler("topic", commands.cmd_topic))
+    app.add_handler(CommandHandler("topics", commands.cmd_topics))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.on_text))
     return app
 

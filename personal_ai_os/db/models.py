@@ -38,8 +38,20 @@ class UserRow(BaseModel):
     referral_code: str | None = None
     referred_by: UUID | None = None
     paddle_customer_id: str | None = None
+    telegram_workspace_chat_id: int | None = None
+    workspace_linked_at: datetime | None = None
 
     model_config = {"frozen": False}
+
+
+class AgentTopicRow(BaseModel):
+    id: UUID
+    user_id: UUID
+    agent_id: UUID
+    workspace_chat_id: int
+    telegram_thread_id: int
+    topic_title: str
+    status: str = "active"
 
 
 class AgentRow(BaseModel):
