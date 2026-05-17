@@ -170,9 +170,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         text,
                         thread_id=thread_id,
                         bot=bot,
+                        auto_create_topic=False,
                     )
                 else:
-                    msg = await ctx.meta.handle_message(conn, user, text)
+                    msg = await ctx.meta.handle_message(conn, user, text, bot=bot)
                     if not linked_here:
                         msg = (msg or "") + link_hint
             except Exception:
@@ -191,7 +192,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await handle_topic_command(update, context, user, text)
                 return
 
-            msg = await ctx.meta.handle_message(conn, user, text)
+            msg = await ctx.meta.handle_message(conn, user, text, bot=bot)
         except Exception:
             logger.exception("meta handle_message failed: user_id=%s", user.id)
             msg = (

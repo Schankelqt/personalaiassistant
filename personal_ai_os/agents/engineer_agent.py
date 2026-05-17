@@ -197,10 +197,8 @@ async def run_engineer(
                 tools=["custom"],
                 metadata=merge_persona({}, persona),
             )
-            return (
-                f"Создан агент {nid.name} ({nid.id}). "
-                f"Изоляция в топике: /topic {nid.name}"
-            )
+            topic_note = await telegram_forum.ensure_agent_topic(bot, conn, user, nid)
+            return f"Создан агент {nid.name} ({nid.id}).{topic_note or ''}"
         if name == "toggle_agent":
             try:
                 aid = uuid.UUID(payload.get("agent_id", ""))
