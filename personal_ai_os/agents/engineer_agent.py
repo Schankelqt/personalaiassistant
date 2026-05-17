@@ -179,10 +179,13 @@ async def run_engineer(
 
     async def exec_tool(name: str, payload: dict[str, Any]) -> str:
         if name == "create_custom_agent":
-            max_a = queries.max_agents_for_plan(user.plan)
-            cnt = await queries.count_active_agents(conn, user.id)
-            if cnt >= max_a:
-                return f"Лимит агентов для тарифа ({max_a}). Обновите план: /upgrade"
+            custom_cnt = await queries.count_custom_agents(conn, user.id)
+            if not queries.can_add_custom_agent(user.plan, custom_cnt):
+                max_c = queries.max_custom_agents_for_plan(user.plan)
+                return (
+                    f"Лимит своих агентов на тарифе {user.plan}: {max_c}. "
+                    "Системные (Engineer, Память, Работа) уже входят. /upgrade"
+                )
             aname = payload.get("name") or "Агент"
             persona = default_persona_for_type("custom", aname, {})
             nid = await queries.insert_agent(

@@ -202,12 +202,38 @@ async def count_active_agents(conn: asyncpg.Connection, user_id: uuid.UUID) -> i
     )
 
 
+async def count_custom_agents(conn: asyncpg.Connection, user_id: uuid.UUID) -> int:
+    return int(
+        await conn.fetchval(
+            """
+            SELECT COUNT(*) FROM agents
+            WHERE user_id = $1 AND is_active = true AND agent_type = 'custom'
+            """,
+            user_id,
+        )
+    )
+
+
 def max_agents_for_plan(plan: str) -> int:
+    """Максимум агентов всего (для отображения / мягких проверок)."""
     if plan == "free":
-        return 1
+        return 4
     if plan == "personal":
         return 5
     return 999
+
+
+def max_custom_agents_for_plan(plan: str) -> int:
+    """Сколько своих (custom) агентов можно добавить поверх Engineer/Memory/Work."""
+    if plan == "free":
+        return 1
+    if plan == "personal":
+        return 4
+    return 999
+
+
+def can_add_custom_agent(plan: str, custom_count: int) -> bool:
+    return custom_count < max_custom_agents_for_plan(plan)
 
 
 async def log_tokens(

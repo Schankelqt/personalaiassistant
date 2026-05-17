@@ -355,7 +355,6 @@ async def handle_topic_command(
     text: str,
 ) -> None:
     """Create forum topic for agent; used by /topic and NL triggers."""
-    from personal_ai_os.core.agent_persona import default_persona_for_type, merge_persona
     from personal_ai_os.bot.handlers.telegram_reply import reply_kwargs
     from personal_ai_os.db import queries
     from personal_ai_os.services import telegram_forum
@@ -369,10 +368,11 @@ async def handle_topic_command(
     raw = _parse_topic_agent_name(text, context.args)
     if not raw:
         await chat.send_message(
-            "Укажи агента, например:\n"
+            "Укажи существующего агента, например:\n"
             "/topic Память\n"
-            "/topic engineer\n"
-            "/topic Авиабилеты — создам агента и топик, если его ещё нет",
+            "/topic Engineer\n"
+            "/topic Работа\n\n"
+            "Новый агент (например Авиабилеты): сначала /create, потом /topic",
             **kw,
         )
         return
@@ -387,36 +387,31 @@ async def handle_topic_command(
             return
 
         agent = await queries.find_agent_by_name_hint(conn, user.id, raw)
-        created = False
         if agent is None:
-            max_a = queries.max_agents_for_plan(user.plan)
-            cnt = await queries.count_active_agents(conn, user.id)
-            if cnt >= max_a:
-                await chat.send_message(
-                    f"Агент «{raw}» не найден, лимит агентов ({max_a}). /agents — список, /upgrade — тариф.",
-                    **kw,
+            agents = await queries.list_agents(conn, user.id)
+            names = ", ".join(a.name for a in agents) or "—"
+            custom_cnt = await queries.count_custom_agents(conn, user.id)
+            if queries.can_add_custom_agent(user.plan, custom_cnt):
+                hint = (
+                    f"Агент «{raw}» не найден.\n"
+                    f"Сейчас есть: {names}.\n\n"
+                    f"Создай: /create {raw} | что должен делать агент\n"
+                    f"Затем: /topic {raw}"
                 )
-                return
-            persona = default_persona_for_type("custom", raw, {})
-            agent = await queries.insert_agent(
-                conn,
-                user.id,
-                name=raw[:80],
-                agent_type="custom",
-                system_prompt=(
-                    f"Ты — агент «{raw}». Помогаешь пользователю в этой области: "
-                    "поиск, планирование, черновики, ссылки. Без оплаты от его имени."
-                ),
-                tools=["custom"],
-                metadata=merge_persona({}, persona),
-            )
-            created = True
+            else:
+                max_c = queries.max_custom_agents_for_plan(user.plan)
+                hint = (
+                    f"Агент «{raw}» не найден.\n"
+                    f"Доступны: {names}.\n"
+                    f"Топик без нового агента: /topic Память (или Engineer, Работа).\n"
+                    f"Лимит своих агентов на {user.plan}: {max_c}. /upgrade"
+                )
+            await chat.send_message(hint, **kw)
+            return
 
         msg, _tid = await telegram_forum.create_topic_for_agent(
             context.bot, conn, user, agent, title=raw[:80]
         )
-        if created:
-            msg = f"Создан агент «{agent.name}».\n\n{msg}"
     await chat.send_message(msg, **kw)
 
 
