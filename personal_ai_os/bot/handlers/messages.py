@@ -130,21 +130,34 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         bot = context.bot
         attachments_begin()
 
-        # --- Workspace supergroup: route by forum topic ---
+        # --- Group / supergroup (forum topics optional) ---
         if is_group:
-            ws_user, bound_agent, use_meta = await telegram_forum.resolve_agent_for_update(
-                conn, chat_id, thread_id, tg_user.id
-            )
-            if ws_user is None:
-                return
-            user = ws_user
+            workspace_chat = await queries.get_user_workspace_chat_id(conn, user.id)
+            linked_here = workspace_chat is not None and workspace_chat == chat_id
 
-            if _topic_request_pattern(text) and thread_id is None:
+            if _topic_request_pattern(text):
                 from personal_ai_os.bot.handlers.commands import handle_topic_command
 
                 await handle_topic_command(update, context, user, text)
                 return
 
+            bound_agent = None
+            use_meta = True
+
+            if linked_here:
+                ws_user, bound_agent, use_meta = await telegram_forum.resolve_agent_for_update(
+                    conn, chat_id, thread_id, tg_user.id
+                )
+                # Чужой пользователь в привязанной группе — игнорируем
+                if ws_user is None:
+                    return
+                user = ws_user
+            else:
+                link_hint = (
+                    "\n\n_Чтобы изолировать агентов в отдельных топиках: "
+                    "включи Topics, дай боту право Manage Topics и отправь "
+                    "`/link_workspace` в этой группе._"
+                )
             try:
                 if bound_agent is not None and not use_meta:
                     msg = await dispatch_sub_agent(
@@ -159,6 +172,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     )
                 else:
                     msg = await ctx.meta.handle_message(conn, user, text)
+                    if not linked_here:
+                        msg = (msg or "") + link_hint
             except Exception:
                 logger.exception("group message failed user_id=%s", user.id)
                 msg = "Сервис ИИ временно недоступен. Попробуйте через минуту."
